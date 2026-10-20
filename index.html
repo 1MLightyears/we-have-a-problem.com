@@ -78,6 +78,11 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
 </table>
 <p><button id="rerun" type="button">Run again</button> <small id="summary"></small></p>
 
+<p>To check curl or other command-line clients, run:</p>
+<pre>curl https://dv-g3b-emudhra.we-have-a-problem.com/
+curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
+<p>A certificate error means the client does not trust the compromised intermediates.</p>
+
 <h2>What actions can users take?</h2>
 
 <p>Users should update their browsers and operating systems to the latest versions as soon as possible.</p>
@@ -101,6 +106,14 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
 </table>
 
 <p>Add more at <a href="https://github.com/galadran/we-have-a-problem.com">github.com/galadran/we-have-a-problem.com</a>.</p>
+
+<h3>Are there workarounds for macOS curl?</h3>
+
+<p>macOS blocks the compromised intermediates, but the built-in <code>/usr/bin/curl</code> verifies certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run as root:</p>
+<pre>cp /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
+awk '/^(###|===) /{skip=0}
+  /^=== .*\/CN=(AAA Certificate Services|emSign ECC Root CA - G3)$/{skip=1}
+  !skip' /etc/ssl/cert.pem.bak &gt; /etc/ssl/cert.pem</pre>
 
 <h3>Are there workarounds for Linux?</h3>
 
