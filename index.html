@@ -109,11 +109,11 @@ curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 
 <h3>Are there workarounds for macOS curl?</h3>
 
-<p>macOS blocks the compromised intermediates, but the built-in <code>/usr/bin/curl</code> verifies certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run as root:</p>
-<pre>cp /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
+<p>macOS blocks the compromised intermediates, but the built-in <code>/usr/bin/curl</code> verifies certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run:</p>
+<pre>sudo cp /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
 awk '/^(###|===) /{skip=0}
   /^=== .*\/CN=(AAA Certificate Services|emSign ECC Root CA - G3)$/{skip=1}
-  !skip' /etc/ssl/cert.pem.bak &gt; /etc/ssl/cert.pem</pre>
+  !skip' /etc/ssl/cert.pem.bak | sudo tee /etc/ssl/cert.pem &gt; /dev/null</pre>
 
 <h3>Are there workarounds for Linux?</h3>
 
