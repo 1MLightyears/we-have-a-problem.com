@@ -83,6 +83,8 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
 curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 <p>A certificate error means the client does not trust the compromised intermediates.</p>
 
+<p>To check a trust store offline, <a href="chains.zip">chains.zip</a> contains the certificate chain served by each of the twelve hosts above in PEM format, with instructions for verifying them with OpenSSL.</p>
+
 <h2>What actions can users take?</h2>
 
 <p>Users should update their browsers and operating systems to the latest versions as soon as possible.</p>
