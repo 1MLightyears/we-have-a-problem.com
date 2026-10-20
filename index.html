@@ -21,6 +21,7 @@
     h3 { margin-top: 1.5rem; margin-bottom: 1rem; font-size: 1.1rem; font-weight: bold; }
     p, ul, ol, table, pre, blockquote { margin-top: 0; margin-bottom: 1rem; }
     ul, ol { padding-left: 1.5rem; }
+    #toc ul ul { margin-bottom: 0; }
     blockquote { margin-left: 0; margin-right: 0; padding: 0 1rem; border-left: .25rem solid #ccc; color: #666; }
     blockquote p:last-child { margin-bottom: 0; }
     hr { border: none; margin: 1.5rem 0; border-bottom: 1px solid #ccc; }
@@ -47,6 +48,8 @@
 <p style="text-align: center"><strong>20th October 2026</strong></p>
 
 <p>The private keys of eight eMudhra intermediate CA certificates have been compromised. They chain to roots trusted by the Mozilla, Microsoft, Apple and Chrome root programs and by many downstream trust stores.</p>
+
+<nav id="toc" aria-label="Contents"></nav>
 
 <h2 id="proof"><a href="#proof">How do we know?</a></h2>
 
@@ -269,6 +272,28 @@ async function run() {
   rerun.disabled = false;
 }
 
+// Table of contents, built from the h2/h3 headings so it stays in sync.
+function buildToc() {
+  const nav = document.getElementById('toc');
+  const top = document.createElement('ul');
+  let sub = null;
+  for (const h of document.querySelectorAll('h2[id], h3[id]')) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = `#${h.id}`; a.textContent = h.textContent;
+    li.appendChild(a);
+    if (h.tagName === 'H2') {
+      top.appendChild(li);
+      sub = null;
+    } else {
+      if (!sub) { sub = document.createElement('ul'); top.lastElementChild.appendChild(sub); }
+      sub.appendChild(li);
+    }
+  }
+  nav.appendChild(top);
+}
+
+buildToc();
 rerun.addEventListener('click', run);
 run();
 </script>
