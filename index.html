@@ -156,7 +156,7 @@ update-ca-trust</pre>
 
 <h2>Which intermediates were compromised?</h2>
 
-<p>Fingerprints, SPKI hashes, serial numbers and CCADB record IDs for the eight intermediates, including the Sectigo cross-signs, are in <a href="affected-certificates.json">affected-certificates.json</a>.</p>
+<p><a href="impacted-intermediates.json">impacted-intermediates.json</a> lists the eight intermediates and their Sectigo cross-signs, with subject, issuer, serial, SHA-256 and SPKI fingerprints, revocation status and the certificate itself. <a href="roots.json">roots.json</a> lists the four roots they chain to and which root programs include each. Both files are from the <a href="https://groups.google.com/a/mozilla.org/g/dev-security-policy/c/0R3XLJL6FuE">dev-security-policy announcement</a>.</p>
 
 <hr>
 
