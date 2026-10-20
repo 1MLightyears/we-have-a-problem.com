@@ -65,7 +65,7 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
 
 <p>An attacker with the private key of any of the compromised intermediate CAs could impersonate any website or service.</p>
 
-<p>This has already been remediated by Mozilla, Microsoft, Apple, and Chrome for their users through their respective tools for distributing revocation information like <a href="https://blog.mozilla.org/security/2015/03/03/revoking-intermediate-certificates-introducing-onecrl/">OneCRL</a>, <a href="https://hacks.mozilla.org/2025/08/crlite-fast-private-and-comprehensive-certificate-revocation-checking-in-firefox/">CRLite</a> and <a href="https://www.chromium.org/Home/chromium-security/crlsets/">CRLSets</a>.</p>
+<p>This has already been remediated by Mozilla, Microsoft, Apple, and Chrome for their users through their tools for distributing revocation information such as <a href="https://blog.mozilla.org/security/2015/03/03/revoking-intermediate-certificates-introducing-onecrl/">OneCRL</a>, <a href="https://hacks.mozilla.org/2025/08/crlite-fast-private-and-comprehensive-certificate-revocation-checking-in-firefox/">CRLite</a> and <a href="https://www.chromium.org/Home/chromium-security/crlsets/">CRLSets</a>.</p>
 
 <p>The CA has also revoked the compromised intermediate certificates. However, many other clients do not consume revocation information and require software updates to ensure they no longer trust the compromised intermediates.</p>
 
