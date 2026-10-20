@@ -108,6 +108,37 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
   -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&amp;|' \
   /etc/ca-certificates.conf &amp;&amp; update-ca-certificates</pre>
 
+<p>On Alpine, run as root:</p>
+<pre>apk add ca-certificates &amp;&amp;
+sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&amp;|' \
+  /etc/ca-certificates.conf &amp;&amp; update-ca-certificates</pre>
+
+<p>On Fedora, RHEL, CentOS Stream, Rocky Linux, AlmaLinux and Amazon Linux 2023, run as root:</p>
+<pre>d=/etc/pki/ca-trust/source/blocklist; [ -d $d ] || d=/etc/pki/ca-trust/source/blacklist
+trust extract --overwrite --format=pem-bundle \
+  --filter='pkcs11:object=Comodo%20AAA%20Services%20root;type=cert' \
+  $d/Comodo_AAA_Services_root.pem &amp;&amp;
+trust extract --overwrite --format=pem-bundle \
+  --filter='pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert' \
+  $d/emSign_ECC_Root_CA_-_G3.pem &amp;&amp;
+update-ca-trust</pre>
+
+<p>On openSUSE and SLES, run as root:</p>
+<pre>d=/etc/pki/trust/blocklist; [ -d $d ] || d=/etc/pki/trust/blacklist
+trust extract --format=pem-bundle \
+  --filter='pkcs11:object=Comodo%20AAA%20Services%20root;type=cert' \
+  $d/Comodo_AAA_Services_root.pem &amp;&amp;
+trust extract --format=pem-bundle \
+  --filter='pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert' \
+  $d/emSign_ECC_Root_CA_-_G3.pem &amp;&amp;
+update-ca-certificates</pre>
+
+<p>On Arch Linux, run as root:</p>
+<pre>trust extract --format=pem-bundle \
+  --filter='pkcs11:object=emSign%20ECC%20Root%20CA%20-%20G3;type=cert' \
+  /etc/ca-certificates/trust-source/blocklist/emSign_ECC_Root_CA_-_G3.pem &amp;&amp;
+update-ca-trust</pre>
+
 <h2>What actions can trust store operators take?</h2>
 
 <p>Please see <a href="https://groups.google.com/a/mozilla.org/g/dev-security-policy/c/0R3XLJL6FuE">this thread</a> in Mozilla's dev-security-policy forum.</p>
