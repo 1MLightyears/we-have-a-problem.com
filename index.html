@@ -14,6 +14,7 @@
     a { color: #0074d9; text-decoration: none; }
     a:hover, a:focus { text-decoration: underline; }
     h1, h2, h3 { margin: 0 0 0.5rem -0.1rem; line-height: 1; color: #111; }
+    h2 a, h3 a { color: inherit; }
     h1 { font-size: 2rem; margin-bottom: 1rem; }
     @media (min-width: 30rem) { h1 { font-size: 2.5rem; margin-bottom: 3rem; } }
     h2 { margin-top: 2.5rem; font-size: 1.2rem; margin-bottom: 1rem; }
@@ -47,7 +48,7 @@
 
 <p>The private keys of eight eMudhra intermediate CA certificates have been compromised. They chain to roots trusted by the Mozilla, Microsoft, Apple and Chrome root programs and by many downstream trust stores.</p>
 
-<h2>How do we know?</h2>
+<h2 id="proof"><a href="#proof">How do we know?</a></h2>
 
 <p>To demonstrate that the keys are compromised, the original reporter Wayne signed the following message with the private key of each of the eight intermediate CAs and reported it to the Root Program Teams on the 17th of October:</p>
 
@@ -57,13 +58,13 @@
 <pre>openssl x509 -in EM-DV-TLS-CA-G3B.crt.pem -noout -pubkey | diff - EM-DV-TLS-CA-G3B.pub.pem
 openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3B.sig message.txt</pre>
 
-<h2>What actions have been taken?</h2>
+<h2 id="actions"><a href="#actions">What actions have been taken?</a></h2>
 
 <p>The root programs and many downstream trust stores have taken action to protect their users. The certificates have been blocked in Firefox and Chrome since the 17th of October and in Apple devices since the 19th.</p>
 
 <p>The issue was responsibly disclosed to downstream trust stores on the 19th of October. Many have already released updates or are in the process of releasing updates.</p>
 
-<h2>What are the consequences?</h2>
+<h2 id="consequences"><a href="#consequences">What are the consequences?</a></h2>
 
 <p>An attacker with the private key of any of the compromised intermediate CAs could impersonate any website or service.</p>
 
@@ -71,7 +72,7 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
 
 <p>The CA has also revoked the compromised intermediate certificates. However, many other clients do not consume revocation information and require software updates to ensure they no longer trust the compromised intermediates.</p>
 
-<h2>Does your client still trust the compromised intermediates?</h2>
+<h2 id="check"><a href="#check">Does your client still trust the compromised intermediates?</a></h2>
 
 <table id="results">
   <thead><tr><th>Intermediate CA</th><th>Chains to</th><th>Result</th></tr></thead>
@@ -86,11 +87,11 @@ curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 
 <p>To check a trust store offline, <a href="chains.zip">chains.zip</a> contains the certificate chain served by each of the twelve hosts above in PEM format, with instructions for verifying them with OpenSSL.</p>
 
-<h2>What actions can users take?</h2>
+<h2 id="users"><a href="#users">What actions can users take?</a></h2>
 
 <p>Users should update their browsers and operating systems to the latest versions as soon as possible.</p>
 
-<h3>What about developer software and packages?</h3>
+<h3 id="developers"><a href="#developers">What about developer software and packages?</a></h3>
 
 <table id="patched">
   <thead><tr><th>Software</th><th>Patched version</th></tr></thead>
@@ -121,7 +122,7 @@ curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 
 <p>Add more at <a href="https://github.com/galadran/we-have-a-problem.com">github.com/galadran/we-have-a-problem.com</a>.</p>
 
-<h3>Are there workarounds for macOS curl?</h3>
+<h3 id="macos-curl"><a href="#macos-curl">Are there workarounds for macOS curl?</a></h3>
 
 <p>macOS blocks the compromised intermediates, but the built-in <code>/usr/bin/curl</code> verifies certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run:</p>
 <pre>sudo cp /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
@@ -129,7 +130,7 @@ awk '/^(###|===) /{skip=0}
   /^=== .*\/CN=(AAA Certificate Services|emSign ECC Root CA - G3)$/{skip=1}
   !skip' /etc/ssl/cert.pem.bak | sudo tee /etc/ssl/cert.pem &gt; /dev/null</pre>
 
-<h3>Are there workarounds for Linux?</h3>
+<h3 id="linux"><a href="#linux">Are there workarounds for Linux?</a></h3>
 
 <p>Until a distribution ships an updated <code>ca-certificates</code> package, expert users can distrust the affected roots in the system trust store. This is NOT recommended for ordinary users.</p>
 
@@ -176,17 +177,17 @@ update-ca-trust</pre>
   "emSign ECC Root CA - G3"
 ];</pre>
 
-<h3>Are there workarounds for NetBSD?</h3>
+<h3 id="netbsd"><a href="#netbsd">Are there workarounds for NetBSD?</a></h3>
 
 <p>On NetBSD 10 and later, run as root:</p>
 <pre>certctl untrust /usr/share/certs/mozilla/all/emSign_ECC_Root_CA_-_G3.pem &amp;&amp;
 certctl untrust /usr/share/certs/mozilla/all/Comodo_AAA_Services_root.pem</pre>
 
-<h2>What actions can trust store operators take?</h2>
+<h2 id="operators"><a href="#operators">What actions can trust store operators take?</a></h2>
 
 <p>Please see <a href="https://groups.google.com/a/mozilla.org/g/dev-security-policy/c/0R3XLJL6FuE">this thread</a> in Mozilla's dev-security-policy forum.</p>
 
-<h2>Which intermediates were compromised?</h2>
+<h2 id="intermediates"><a href="#intermediates">Which intermediates were compromised?</a></h2>
 
 <p><a href="impacted-intermediates.json">impacted-intermediates.json</a> lists the eight intermediates and their Sectigo cross-signs. <a href="roots.json">roots.json</a> lists the roots they chain to.</p>
 
