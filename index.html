@@ -98,6 +98,16 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
   </tbody>
 </table>
 
+<h3>Are there workarounds for Linux?</h3>
+
+<p>Until a distribution ships an updated <code>ca-certificates</code> package, expert users can distrust the affected roots in the system trust store. This is NOT recommended for ordinary users.</p>
+
+<p>On Debian and Ubuntu, run as root:</p>
+<pre>sed -i \
+  -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&amp;|' \
+  -e 's|^mozilla/Comodo_AAA_Services_root.crt|!&amp;|' \
+  /etc/ca-certificates.conf &amp;&amp; update-ca-certificates</pre>
+
 <h2>What actions can trust store operators take?</h2>
 
 <p>Please see <a href="https://groups.google.com/a/mozilla.org/g/dev-security-policy/c/0R3XLJL6FuE">this thread</a> in Mozilla's dev-security-policy forum.</p>
