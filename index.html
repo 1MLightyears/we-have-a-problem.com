@@ -203,6 +203,15 @@ update-ca-trust</pre>
 <pre>certctl untrust /usr/share/certs/mozilla/all/emSign_ECC_Root_CA_-_G3.pem &amp;&amp;
 certctl untrust /usr/share/certs/mozilla/all/Comodo_AAA_Services_root.pem</pre>
 
+<h3>Are there workarounds for FreeBSD?</h3>
+
+<p>On FreeBSD 14 or later, run the following commands as root:</p>
+<pre>
+cp /etc/ssl/certs/14bc7599.0 /usr/share/certs/untrusted/14bc7599.pem
+cp /etc/ssl/certs/ee64a828.0 /usr/share/certs/untrusted/ee64a828.pem
+certctl rehash
+</pre>
+
 <hr>
 
 <p>Site published by <a href="https://github.com/dennisjackson">Dennis Jackson</a>. The source is on <a href="https://github.com/galadran/we-have-a-problem.com">GitHub</a> and PRs are welcome.</p>
