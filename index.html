@@ -116,21 +116,6 @@ awk '/^(###|===) /{skip=0}
   /^=== .*\/CN=(AAA Certificate Services|emSign ECC Root CA - G3)$/{skip=1}
   !skip' /etc/ssl/cert.pem.bak | sudo tee /etc/ssl/cert.pem &gt; /dev/null</pre>
 
-<h3>What about Linux distributions?</h3>
-
-<table id="distros">
-  <thead><tr><th>Distribution</th><th>Package</th><th>Patched version</th></tr></thead>
-  <tbody>
-    <tr><td>Alpine</td><td class="pending">TBD</td><td class="pending">TBD</td></tr>
-    <tr><td>Chainguard</td><td>ca-certificates</td><td>20260909-r3</td></tr>
-    <tr><td>Debian</td><td class="pending">TBD</td><td class="pending">TBD</td></tr>
-    <tr><td>Fedora</td><td class="pending">TBD</td><td class="pending">TBD</td></tr>
-    <tr><td>Ubuntu</td><td class="pending">TBD</td><td class="pending">TBD</td></tr>
-  </tbody>
-</table>
-
-<p>Add more distributions at <a href="https://github.com/galadran/we-have-a-problem.com">github.com/galadran/we-have-a-problem.com</a>.</p>
-
 <h3>Are there workarounds for Linux?</h3>
 
 <p>Until a distribution ships an updated <code>ca-certificates</code> package, expert users can distrust the affected roots in the system trust store. This is NOT recommended for ordinary users.</p>
