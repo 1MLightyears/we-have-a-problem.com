@@ -26,6 +26,7 @@
     table { width: 100%; border: 1px solid #ccc; border-collapse: collapse; }
     td, th { padding: .25rem .5rem; border: 1px solid #ccc; text-align: left; vertical-align: top; }
     th { background: #f5f5f5; font-weight: bold; }
+    #patched { width: auto; }
     pre, code { font-family: Menlo, Consolas, monospace; background-color: #eee; }
     pre { padding: .5rem 1rem; font-size: 0.8rem; overflow-x: auto; }
     code { padding: .1rem .25rem; font-size: 0.85em; word-break: break-all; }
@@ -94,18 +95,25 @@ curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 <table id="patched">
   <thead><tr><th>Software</th><th>Patched version</th></tr></thead>
   <tbody>
-    <tr><td>Ubuntu ca-certificates</td><td><a href="https://bugs.launchpad.net/ubuntu/+source/ca-certificates/+bug/2171507">20260816ubuntu0.22.04.1, 20260816ubuntu0.24.04.1, 20260816ubuntu0.26.04.1, 20260816ubuntu0.26.10.1</a></td></tr>
+    <tr><td>Ubuntu ca-certificates</td><td><a href="https://bugs.launchpad.net/ubuntu/+source/ca-certificates/+bug/2171507">20260816ubuntu0.22.04.1,<br>20260816ubuntu0.24.04.1,<br>20260816ubuntu0.26.04.1,<br>20260816ubuntu0.26.10.1</a></td></tr>
+    <tr><td>Debian ca-certificates</td><td><a href="https://bugs.debian.org/1151413" class="pending">pending</a></td></tr>
+    <tr><td>Arch Linux ca-certificates-mozilla</td><td><a href="https://archlinux.org/packages/core/x86_64/ca-certificates-mozilla/">3.131.1-1</a></td></tr>
+    <tr><td>Gentoo ca-certificates</td><td><a href="https://bugs.gentoo.org/984601">20260816.3.125</a></td></tr>
+    <tr><td>FreeBSD ca_root_nss</td><td><a href="https://reviews.freebsd.org/D60905" class="pending">pending</a></td></tr>
+    <tr><td>NSS</td><td><a href="https://groups.google.com/a/mozilla.org/g/dev-tech-crypto/c/vSxZxnOMMvs">3.131.1</a></td></tr>
+    <tr><td>curl CA bundle</td><td><a href="https://curl.se/docs/caextract.html">2026-10-20</a></td></tr>
+    <tr><td>Homebrew ca-certificates</td><td><a href="https://github.com/Homebrew/homebrew-core/blob/d02b8762f4a29859c47a635a0d2683223fea9812/Formula/c/ca-certificates.rb">2026-09-25_1</a></td></tr>
     <tr><td>Go</td><td><a href="https://groups.google.com/g/golang-announce/c/66pojueaQek">1.27.3, 1.26.10</a></td></tr>
-    <tr><td>Electron</td><td><a href="https://github.com/electron/electron/releases/tag/v44.9.1">44.9.1, 43.8.1, 42.11.16</a></td></tr>
+    <tr><td>Node.js</td><td><a href="https://github.com/nodejs/node/pull/66871" class="pending">pending</a></td></tr>
     <tr><td>Python certifi</td><td><a href="https://github.com/certifi/python-certifi/releases/tag/2026.10.19">2026.10.19</a></td></tr>
+    <tr><td>pip</td><td><a href="https://github.com/pypa/pip/releases/tag/26.2.2">26.2.2</a></td></tr>
+    <tr><td>uv</td><td><a href="https://github.com/astral-sh/uv/releases/tag/0.13.4">0.13.4</a></td></tr>
     <tr><td>Rust rustls-webpki</td><td><a href="https://github.com/rustls/webpki/releases/tag/v%2F0.103.16">0.103.16</a></td></tr>
     <tr><td>Rust webpki-roots / webpki-root-certs</td><td><a href="https://github.com/rustls/webpki-roots/releases/tag/v%2F1.0.10">1.0.10</a></td></tr>
-    <tr><td>Homebrew ca-certificates</td><td><a href="https://github.com/Homebrew/homebrew-core/blob/d02b8762f4a29859c47a635a0d2683223fea9812/Formula/c/ca-certificates.rb">2026-09-25_1</a></td></tr>
-    <tr><td>Node.js</td><td><a href="https://github.com/nodejs/node/pull/66871" class="pending">pending</a></td></tr>
+    <tr><td>Electron</td><td><a href="https://github.com/electron/electron/releases/tag/v44.9.1">44.9.1, 43.8.1, 42.11.16</a></td></tr>
+    <tr><td>Bun</td><td><a href="https://github.com/oven-sh/bun/pull/46159" class="pending">pending</a></td></tr>
     <tr><td>Composer ca-bundle</td><td><a href="https://github.com/composer/ca-bundle/pull/154" class="pending">pending</a></td></tr>
-    <tr><td>NSS</td><td><a href="https://groups.google.com/a/mozilla.org/g/dev-tech-crypto/c/vSxZxnOMMvs">3.131.1</a></td></tr>
-    <tr><td>uv</td><td><a href="https://github.com/astral-sh/uv/releases/tag/0.13.4">0.13.4</a></td></tr>
-    <tr><td>pip</td><td><a href="https://github.com/pypa/pip/releases/tag/26.2.2">26.2.2</a></td></tr>
+    <tr><td>Elixir castore</td><td><a href="https://hex.pm/packages/castore/1.0.22">1.0.22</a></td></tr>
   </tbody>
 </table>
 
