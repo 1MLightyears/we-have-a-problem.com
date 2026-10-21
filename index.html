@@ -262,10 +262,14 @@ async function probe(host) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(`https://${host}/?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal });
-    return res.ok ? { ok: true, text: '❌ Connected' } : { ok: false, text: `✅ Did not connect (HTTP ${res.status})` };
+    // Any HTTP response, even an error from an overloaded server, means the
+    // TLS handshake succeeded.
+    return { status: 'connected', text: res.ok ? '❌ Connected' : `❌ Connected (HTTP ${res.status})` };
   } catch (err) {
+    // A slow server is not evidence that the chain was rejected.
+    if (err.name === 'AbortError') return { status: 'unknown', text: '⚠️ Inconclusive (timed out)' };
     // Browsers report TLS failures and network errors identically here.
-    return { ok: false, text: err.name === 'AbortError' ? '✅ Did not connect (timed out)' : '✅ Did not connect' };
+    return { status: 'blocked', text: '✅ Did not connect' };
   } finally {
     clearTimeout(timer);
   }
@@ -294,11 +298,13 @@ async function run() {
   const results = await Promise.all(HOSTS.map(async ({ host }, i) => {
     const r = await probe(host);
     cells[i].textContent = r.text;
-    cells[i].className = r.ok ? 'bad' : 'good';
-    return r.ok;
+    cells[i].className = { connected: 'bad', blocked: 'good', unknown: 'pending' }[r.status];
+    return r.status;
   }));
-  const n = results.filter(Boolean).length;
-  summary.textContent = `Your browser connected to ${n} of ${HOSTS.length} hosts.`;
+  const n = results.filter(s => s === 'connected').length;
+  const unknown = results.filter(s => s === 'unknown').length;
+  summary.textContent = `Your browser connected to ${n} of ${HOSTS.length} hosts.` +
+    (unknown ? ` ${unknown} timed out, so the result is incomplete. Please try again later.` : '');
 }
 
 // Disable the button until the run has finished and the cooldown has passed.
