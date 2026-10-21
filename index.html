@@ -211,7 +211,7 @@ update-ca-trust</pre>
 
 <h3 id="windows"><a href="#windows">Are there workarounds for Windows?</a></h3>
 
-<p>The status of Microsoft's automatic block is <a href="https://github.com/galadran/we-have-a-problem.com/issues/17">uncertain</a>. This script lets administrators block the compromised certificates locally.</p>
+<p>Microsoft has shipped blocks for these certificates through Windows' <a href="https://learn.microsoft.com/en-us/windows-server/identity/ad-cs/certificate-trust#automatic-certificate-trust-list-updates">automatic certificate trust list updates</a>. Machines that receive these updates don't need this workaround. This script lets administrators block the compromised certificates locally on machines that do not, for example those that are offline or have automatic updates disabled.</p>
 
 <p><strong>This mitigation is not recommended for enterprise-managed devices.</strong> Your IT department will manage the rollout; contact them before applying local changes.</p>
 
