@@ -144,13 +144,17 @@ curl https://dv-g3b-aaa-emudhra.we-have-a-problem.com/</pre>
 
 <p>Add more at <a href="https://github.com/galadran/we-have-a-problem.com">github.com/galadran/we-have-a-problem.com</a>.</p>
 
-<h3 id="macos-curl"><a href="#macos-curl">Are there workarounds for macOS curl?</a></h3>
+<h3 id="macos-curl"><a href="#macos-curl">Are there workarounds for macOS curl, git, and Python?</a></h3>
 
-<p>macOS blocks the compromised intermediates, but the built-in <code>/usr/bin/curl</code> verifies certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run:</p>
-<pre>sudo cp /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
-awk '/^(###|===) /{skip=0}
+<p>macOS blocks the compromised intermediates, but the built-in <code>curl</code>, <code>git</code>, <code>python3</code>, <code>perl</code>, <code>ruby</code>, and <code>openssl</code> verify certificates against <code>/etc/ssl/cert.pem</code> without checking revocation, and that file has not been updated. To remove the affected roots from it, run:</p>
+<pre>sudo cp -p /etc/ssl/cert.pem /etc/ssl/cert.pem.bak &amp;&amp;
+sudo awk '/^(###|===) /{skip=0}
   /^=== .*\/CN=(AAA Certificate Services|emSign ECC Root CA - G3)$/{skip=1}
   !skip' /etc/ssl/cert.pem.bak | sudo tee /etc/ssl/cert.pem &gt; /dev/null</pre>
+<p>The built-in <code>pip3</code>, and the <code>pip</code> in virtual environments created from the built-in <code>python3</code>, use their own outdated copy of the roots instead. To make them use the fixed system file, run:</p>
+<pre>F="$(/usr/bin/python3 -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')/sitecustomize.py" &amp;&amp;
+echo 'import os; os.environ.setdefault("PIP_CERT", "/etc/ssl/cert.pem")' | sudo tee -a "$F" &gt; /dev/null &amp;&amp;
+sudo chmod 644 "$F"</pre>
 
 <h3 id="linux"><a href="#linux">Are there workarounds for Linux?</a></h3>
 
