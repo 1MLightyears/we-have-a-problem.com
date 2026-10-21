@@ -157,6 +157,8 @@ sudo awk '/^(###|===) /{skip=0}
 echo 'import os; os.environ.setdefault("PIP_CERT", "/etc/ssl/cert.pem")' | sudo tee -a "$F" &gt; /dev/null &amp;&amp;
 sudo chmod 644 "$F"</pre>
 
+<p>For nix-darwin users, see NixOS instructions below.</p>
+
 <h3 id="linux"><a href="#linux">Are there workarounds for Linux?</a></h3>
 
 <p>Until a distribution ships an updated <code>ca-certificates</code> package, expert users can distrust the affected roots in the system trust store. This is NOT recommended for ordinary users.</p>
