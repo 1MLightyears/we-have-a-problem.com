@@ -78,7 +78,7 @@ openssl dgst -sha384 -verify EM-DV-TLS-CA-G3B.pub.pem -signature EM-DV-TLS-CA-G3
   <thead><tr><th>Intermediate CA</th><th>Chains to</th><th>Result</th></tr></thead>
   <tbody></tbody>
 </table>
-<p><button id="rerun" type="button">Run again</button> <small id="summary"></small></p>
+<p><button id="rerun" type="button">Run check</button> <small id="summary"></small></p>
 
 <p>To check curl or other command-line clients, run:</p>
 <pre>curl https://dv-g3b-emudhra.we-have-a-problem.com/
@@ -271,21 +271,26 @@ async function probe(host) {
   }
 }
 
+const COOLDOWN_MS = 10000;
+
+const cells = HOSTS.map(({ host, label, root }) => {
+  const tr = document.createElement('tr');
+  const tdName = document.createElement('td');
+  const a = document.createElement('a');
+  a.href = `https://${host}/`; a.rel = 'noopener'; a.target = '_blank'; a.textContent = label;
+  tdName.appendChild(a);
+  const tdResult = cell('not yet checked', 'pending');
+  tr.append(tdName, cell(root), tdResult);
+  resultsBody.appendChild(tr);
+  return tdResult;
+});
+
 async function run() {
-  rerun.disabled = true;
   summary.textContent = '';
-  resultsBody.textContent = '';
-  const cells = HOSTS.map(({ host, label, root }) => {
-    const tr = document.createElement('tr');
-    const tdName = document.createElement('td');
-    const a = document.createElement('a');
-    a.href = `https://${host}/`; a.rel = 'noopener'; a.target = '_blank'; a.textContent = label;
-    tdName.appendChild(a);
-    const tdResult = cell('checking…', 'pending');
-    tr.append(tdName, cell(root), tdResult);
-    resultsBody.appendChild(tr);
-    return tdResult;
-  });
+  for (const td of cells) {
+    td.textContent = 'checking…';
+    td.className = 'pending';
+  }
   const results = await Promise.all(HOSTS.map(async ({ host }, i) => {
     const r = await probe(host);
     cells[i].textContent = r.text;
@@ -294,11 +299,24 @@ async function run() {
   }));
   const n = results.filter(Boolean).length;
   summary.textContent = `Your browser connected to ${n} of ${HOSTS.length} hosts.`;
+}
+
+// Disable the button until the run has finished and the cooldown has passed.
+async function start() {
+  observer.disconnect();
+  rerun.disabled = true;
+  await Promise.all([run(), new Promise(r => setTimeout(r, COOLDOWN_MS))]);
+  rerun.textContent = 'Run again';
   rerun.disabled = false;
 }
 
-rerun.addEventListener('click', run);
-run();
+// Run automatically the first time the results table scrolls into view.
+const observer = new IntersectionObserver(entries => {
+  if (entries.some(e => e.isIntersecting)) start();
+});
+observer.observe(document.getElementById('results'));
+
+rerun.addEventListener('click', start);
 </script>
 </body>
 </html>
