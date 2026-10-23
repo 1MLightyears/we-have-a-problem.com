@@ -140,7 +140,7 @@ function ensureVersion([string]$label, [string]$minimum, [scriptblock]$getter, [
         $started = $true
         & $updater
         $after = & $getter
-        if (-not (versionGe $after $minimum)) { throw "Still [$after] after the upgrade; check the sources, dependency constraints, and PATH." }
+        if (-not (versionGe $after $minimum)) { throw "Still [$after] after the upgrade? Check sources, dependency constraints, and PATH." }
         Write-Host "  Done [$after]"
         $script:active_update = $false
         $script:update_log.Clear()
@@ -259,6 +259,69 @@ function checkPythonPackage([string]$package, [string]$minimum) {
 }
 function checkPip { checkPythonPackage pip '26.2.2' }
 function checkCertifi { checkPythonPackage certifi '2026.10.19' }
+
+# Python runtimes are verified against upstream branch thresholds; the interpreter list comes from collectPython, with no separate scope.
+function pythonTarget([string]$branch) {
+    switch ($branch) {
+        '3.13' { return '3.13.17' }
+        '3.14' { return '3.14.9' }
+        '3.15' { return '3.15.1' }
+        default { throw "No fixed version is listed for branch [$branch]; use a supported branch or upgrade the original way." }
+    }
+}
+function getPythonRuntime([string]$py) {
+    return (readNative $py @('-c', 'import sys; v=sys.version_info; print("%d.%d.%d" % v[:3] if v.releaselevel=="final" else "%d.%d.%d%s%d" % (v.major,v.minor,v.micro,v.releaselevel,v.serial))')).Trim()
+}
+function upgradePythonRuntime([string]$py, [string]$target) {
+    $prefix = (readNative $py @('-c', 'import sys; print(sys.prefix)')).Trim()
+    # Conda environments are managed by conda; do not bypass it by switching interpreters with pip.
+    if ((Test-Path -LiteralPath (Join-Path $prefix 'conda-meta')) -and (findTool conda)) {
+        runNative conda @('update', '--prefix', $prefix, '--yes', 'python'); return
+    }
+    $path = (readNative $py @('-c', 'import sys; print(getattr(sys, "_base_executable", sys.executable))')).Trim()
+    # Standalone uv install: upgrade the patch release on the same branch; do not install a second copy.
+    if (findTool uv) {
+        $uvDir = query uv @('python', 'dir')
+        if ($uvDir.Code -eq 0 -and $uvDir.Text.Trim()) {
+            $dir = $uvDir.Text.Trim()
+            if ($path.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)) {
+                $request = $target.Substring(0, $target.LastIndexOf('.'))
+                runNative uv @('python', 'upgrade', $request); return
+            }
+        }
+    }
+    # python.org installs are upgraded through WinGet's existing product record; do not install a second copy.
+    if (findTool winget) {
+        $branch = $target.Substring(0, $target.LastIndexOf('.'))
+        $id = "Python.Python.$branch"
+        $listed = query winget @('list', '--id', $id, '--exact', '--disable-interactivity')
+        if ($listed.Code -eq 0 -and $listed.Text.Contains($id)) {
+            runNative winget @('upgrade', '--id', $id, '--exact', '--disable-interactivity'); return
+        }
+    }
+    upgradeOwned $py '' python python3
+}
+function checkPythonRuntime {
+    $seen = @{}
+    foreach ($py in $script:python_list) {
+        # The same interpreter may have several entry points (PATH alias, venv); check it only once by base executable.
+        $real = $py
+        $probe = query $py @('-c', 'import os,sys; print(os.path.realpath(getattr(sys, "_base_executable", sys.executable)))')
+        if ($probe.Code -eq 0 -and $probe.Text.Trim()) { $real = $probe.Text.Trim() }
+        if ($seen.ContainsKey($real)) { continue }
+        $seen[$real] = $true
+        try {
+            $current = getPythonRuntime $py
+            if ($current -notmatch '^\d+\.\d+\.\d+$') { throw "Pre-release or abnormal version [$current] is not accepted as proof of a fix." }
+            $branch = $current.Substring(0, $current.LastIndexOf('.'))
+            $minimum = pythonTarget $branch
+        } catch {
+            fail "Python ($py)" $_.Exception.Message
+            continue
+        }
+        ensureVersion "Python ($py)" $minimum { getPythonRuntime $py } { upgradePythonRuntime $py $minimum }
+    }
+}
 function getUv { return versionOf (readNative uv @('--version')) }
 function upgradeUv {
     $path = findTool uv
@@ -332,6 +395,50 @@ function checkElectron {
             if (Test-Path -LiteralPath (Join-Path $dir 'package.json')) {
                 ensureVersion 'Electron (global)' (targetFor electron (getElectron $dir)) { getElectron $dir } { upgradeElectron global }
             }
+        }
+    }
+}
+
+# Handles only this Action reference in the current project's workflows; floating branches and SHAs cannot be resolved offline.
+function getPypiActionMatches([string]$file) {
+    $raw = [IO.File]::ReadAllText($file, [Text.Encoding]::UTF8)
+    return [regex]::Matches($raw, '(?m)^[ \t]*(-[ \t]+)?uses:[ \t]*["'']?pypa/gh-action-pypi-publish@([^\s"''#]+)')
+}
+function getPypiActionVersion([string]$file) {
+    $found = @(getPypiActionMatches $file)
+    if ($found.Count -ne 1) { throw 'The number of references in the workflow has changed; cannot verify.' }
+    $ref = $found[0].Groups[2].Value
+    if ($ref -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Reference [$ref] is not a comparable fixed tag." }
+    return $Matches[1]
+}
+function upgradePypiActionRef([string]$file, [string]$ref) {
+    $raw = [IO.File]::ReadAllText($file, [Text.Encoding]::UTF8)
+    $pattern = '(?m)(^[ \t]*(-[ \t]+)?uses:[ \t]*["'']?pypa/gh-action-pypi-publish@)' + [regex]::Escape($ref) + '(?=[\s"''#]|$)'
+    $regex = New-Object System.Text.RegularExpressions.Regex($pattern)
+    $updated = $regex.Replace($raw, '${1}v1.14.3', 1)
+    if ($updated -eq $raw) { throw "Could not locate reference [$ref] in the workflow." }
+    Copy-Item -LiteralPath $file -Destination ($file + '.emudhra.' + (Get-Date -Format 'yyyyMMddHHmmss') + '.bak') -Force
+    [IO.File]::WriteAllText($file, $updated, (New-Object Text.UTF8Encoding($false)))
+}
+function checkPypiAction {
+    $dir = Join-Path $script:project_dir '.github\workflows'
+    if (-not (Test-Path -LiteralPath $dir)) { return }
+    $files = @()
+    foreach ($pattern in @('*.yml', '*.yaml')) {
+        $files += Get-ChildItem -LiteralPath $dir -Filter $pattern -File -ErrorAction SilentlyContinue
+    }
+    foreach ($file in $files) {
+        $found = @(getPypiActionMatches $file.FullName)
+        if ($found.Count -eq 0) { continue }
+        $displayed = "Workflow [$($file.Name)]"
+        if ($found.Count -gt 1) { fail 'pypi-publish GitHub Action' "$displayed contains multiple references; handle it manually."; continue }
+        $ref = $found[0].Groups[2].Value
+        if ($ref -match '^v(\d+\.\d+\.\d+)$') {
+            ensureVersion "pypi-publish GitHub Action ($($file.Name))" '1.14.3' { getPypiActionVersion $file.FullName } { upgradePypiActionRef $file.FullName $ref }
+        } elseif ($ref -match '^[0-9a-f]{7,40}$') {
+            reportSkip 'pypi-publish GitHub Action' "$displayed uses a commit SHA reference; the version cannot be resolved, so handle it manually."
+        } else {
+            reportSkip 'pypi-publish GitHub Action' "In $displayed, reference [$ref] cannot be verified offline; switch to a fixed tag or confirm manually."
         }
     }
 }
@@ -492,8 +599,8 @@ function checkFreebsdCaroot { }
 function checkFreebsd { }
 function checkFreedesktop { }
 function checkOmnios { }
+function checkOpenbsd { }
 function checkBottlerocket { reportSkip Bottlerocket 'Still pending in the patch table; no fixed version is configured yet.' }
-function checkBun { reportSkip Bun 'Still pending in the patch table; no fixed version is configured yet.' }
 function checkErlangCertifi { reportSkip 'Erlang certifi' 'Still pending in the patch table; no fixed version is configured yet.' }
 
 # Java uses the full runtime.version; 8u511 is normalized to 8.0.511, and the build number after + does not participate in patch comparison.
@@ -563,6 +670,77 @@ function upgradeDeno {
 }
 function checkDeno { if (findTool deno) { ensureVersion Deno '2.9.8' { getDeno } { upgradeDeno } } }
 
+function getBun { return versionOf (readNative bun @('--version')) }
+function upgradeBun {
+    # The official recommendation is for package-manager installs to use the original manager; canary is not accepted as proof of a fix, and self-update switches back to stable.
+    $path = findTool bun
+    if (($path -match '(?i)[\\/]scoop[\\/]') -or ($env:ChocolateyInstall -and $path.StartsWith($env:ChocolateyInstall, [StringComparison]::OrdinalIgnoreCase))) {
+        upgradeOwned bun 'Oven-sh.Bun' bun bun; return
+    }
+    $result = updateQuery bun @('upgrade', '--stable')
+    if ($result.Code -ne 0) { upgradeOwned bun 'Oven-sh.Bun' bun bun }
+}
+function checkBun { if (findTool bun) { ensureVersion Bun '1.4.4' { getBun } { upgradeBun } } }
+
+function getConda { return versionOf (readNative conda @('--version')) }
+function upgradeConda {
+    # Official update command; keep the user's existing channel configuration and do not add a default channel.
+    runNative conda @('update', '--name', 'base', '--yes', 'conda')
+}
+function checkConda { if (findTool conda) { ensureVersion Conda '26.9.4' { getConda } { upgradeConda } } }
+
+# ArgoCD CLI and in-cluster server versions are handled separately: only the local CLI is changed safely; the server is only reported.
+function getArgocd { return versionOf (readNative argocd @('version', '--client', '--short')) }
+function upgradeArgocd { upgradeOwned argocd 'Argoproj.ArgoCD' argocd argocd }
+function checkArgocdServer {
+    if (-not (findTool kubectl)) { reportSkip 'ArgoCD server' 'kubectl was not found; verify the server version on the cluster side according to the deployment method.'; return }
+    $result = query kubectl @('-n', 'argocd', 'get', 'deployment', 'argocd-server', '-o', 'jsonpath={.spec.template.spec.containers[0].image}')
+    if ($result.Code -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+        reportSkip 'ArgoCD server' 'Could not read the argocd-server deployment; the server version cannot be verified.'; return
+    }
+    $image = $result.Text.Trim()
+    if ($image -match ':v?(\d+\.\d+\.\d+)$') {
+        if (versionGe $Matches[1] '3.3.18') { reportSkip 'ArgoCD server' "Image [$image] already satisfies the requirement." }
+        else { fail 'ArgoCD server' "Image [$image] is below 3.3.18; upgrade it through Helm/deployment manifests, the script does not modify the cluster automatically." }
+    } else {
+        reportSkip 'ArgoCD server' "Image [$image] does not use a comparable version tag; confirm manually."
+    }
+}
+function checkArgocd {
+    if (findTool argocd) { ensureVersion 'ArgoCD CLI' '3.3.18' { getArgocd } { upgradeArgocd } }
+    if (findTool kubectl) { checkArgocdServer }
+}
+
+# Docker Desktop is a separate application; the docker Engine/CLI version cannot stand in for the Desktop version.
+function getDockerDesktop {
+    $result = query docker @('desktop', 'version')
+    if ($result.Code -eq 0) { return (versionOf $result.Text) }
+    foreach ($key in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop'
+    )) {
+        $item = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+        if ($item -and $item.DisplayVersion) { return (versionOf $item.DisplayVersion) }
+    }
+    $exe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+    if (Test-Path -LiteralPath $exe) { return (versionOf (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion) }
+    throw 'No Docker Desktop installation record was found.'
+}
+function upgradeDockerDesktop {
+    # Upgrade only an installed Docker Desktop; do not overwrite unknown sources with the official installer.
+    if (findTool winget) {
+        $listed = query winget @('list', '--id', 'Docker.DockerDesktop', '--exact', '--disable-interactivity')
+        if ($listed.Code -eq 0 -and $listed.Text.Contains('Docker.DockerDesktop')) {
+            runNative winget @('upgrade', '--id', 'Docker.DockerDesktop', '--exact', '--disable-interactivity'); return
+        }
+    }
+    throw 'Docker Desktop cannot be updated automatically; use the in-app update and restart Docker Desktop after upgrading.'
+}
+function checkDockerDesktop {
+    try { $null = getDockerDesktop } catch { return }
+    ensureVersion 'Docker Desktop' '4.96.2' { getDockerDesktop } { upgradeDockerDesktop }
+}
+
 # Every handler without a detection result has a specific reason; --check no longer skips silently.
 $script:skip_reasons = @{
     checkUbuntu = @('Ubuntu CA package', 'Does not apply on native Windows; run the Bash version separately inside WSL.')
@@ -572,11 +750,17 @@ $script:skip_reasons = @{
     checkFreebsd = @('FreeBSD ca_root_nss', 'Does not apply on native Windows.')
     checkFreedesktop = @('Freedesktop SDK', 'Does not apply on native Windows; inside Linux/WSL use the Bash version to check Flatpak runtimes.')
     checkOmnios = @('OmniOS web/ca-bundle', 'Does not apply on native Windows.')
+    checkOpenbsd = @('OpenBSD cert.pem', 'Does not apply on native Windows; run the Bash version on OpenBSD.')
     checkJava = @('Java', 'java was not found on PATH.')
     checkPixi = @('pixi', 'pixi was not found on PATH.')
     checkClaude = @('Claude Code', 'claude was not found on PATH.')
     checkMise = @('mise', 'mise was not found on PATH.')
     checkDeno = @('Deno', 'deno was not found on PATH.')
+    checkBun = @('Bun', 'bun was not found on PATH.')
+    checkConda = @('Conda', 'conda was not found on PATH.')
+    checkArgocd = @('ArgoCD CLI', 'argocd was not found on PATH.')
+    checkDockerDesktop = @('Docker Desktop', 'No Docker Desktop installation record was found.')
+    checkPypiAction = @('pypi-publish GitHub Action', 'The workflows of the current project contain no reference to this Action.')
     checkArch = @('Arch CA package', 'Does not apply on native Windows.')
     checkGentoo = @('Gentoo CA package', 'Does not apply on native Windows.')
     checkFedora = @('Fedora CA package', 'Does not apply on native Windows.')
@@ -591,6 +775,7 @@ $script:skip_reasons = @{
     checkNode = @('Node.js', 'node was not found on PATH.')
     checkPip = @('pip', 'No usable Python/pip environment was found in the checked scope.')
     checkCertifi = @('Python certifi', 'No usable Python/certifi environment was found in the checked scope.')
+    checkPythonRuntime = @('Python runtime', 'No usable Python interpreter was found in the checked scope.')
     checkUv = @('uv', 'uv was not found on PATH.')
     checkRustlsWebpki = @('rustls-webpki', 'The current directory has no recognizable Cargo.lock containing this library.')
     checkWebpkiRoots = @('webpki-roots', 'The current directory has no recognizable Cargo.lock containing this library.')
@@ -603,8 +788,8 @@ $script:skip_reasons = @{
 }
 
 # Main flow: run each item in turn; a failure in one item does not block the items after it.
-# The fixed finalized time represents the table#patched baseline snapshot; the current time at startup is not passed off as the update time.
-$script:finalized_at = '2026-10-22 18:37:12 Australia/Sydney (UTC+11:00)'
+# The fixed finalized time represents the table.patched baseline snapshot; the current time at startup is not passed off as the update time.
+$script:finalized_at = '2026-10-23 15:22:30 Australia/Sydney (UTC+11:00)'
 Write-Host "eMudhra fix script | Finalized at: $script:finalized_at"
 if ($env:EMUDHRA_BADARGS -or $env:EMUDHRA_MODE -notin @('', '--check', '--help', '-h', $null)) {
     [Console]::Error.WriteLine('Unknown argument. Usage: emudhrafix.cmd [--check]')
@@ -620,13 +805,50 @@ if ($script:check_only) { Write-Host '[Check mode]' }
 collectPython
 Write-Host 'Environment detection complete; checking items in patch table order...'
 foreach ($handler in @(
-    'checkUbuntu', 'checkDebian', 'checkDevuan', 'checkArch', 'checkGentoo', 'checkFedora',
-    'checkFreebsdCaroot', 'checkFreebsd', 'checkFreedesktop', 'checkChainguard', 'checkAlpine',
-    'checkGuix', 'checkOmnios', 'checkBottlerocket', 'checkNss', 'checkCurlBundle', 'checkCfssl',
-    'checkHomebrew', 'checkGo', 'checkJava', 'checkNode', 'checkCertifi', 'checkPip', 'checkUv',
-    'checkPixi', 'checkRustlsWebpki', 'checkWebpkiRoots', 'checkWebpkiRootCerts', 'checkRustup',
-    'checkElectron', 'checkBun', 'checkClaude', 'checkComposer', 'checkCastore', 'checkErlangCertifi',
-    'checkMise', 'checkPerlCa', 'checkDeno'
+    'checkUbuntu',
+    'checkDebian',
+    'checkDevuan',
+    'checkArch',
+    'checkGentoo',
+    'checkFedora',
+    'checkFreebsdCaroot',
+    'checkFreebsd',
+    'checkFreedesktop',
+    'checkChainguard',
+    'checkAlpine',
+    'checkGuix',
+    'checkOmnios',
+    'checkOpenbsd',
+    'checkBottlerocket',
+    'checkNss',
+    'checkCurlBundle',
+    'checkCfssl',
+    'checkHomebrew',
+    'checkGo',
+    'checkJava',
+    'checkNode',
+    'checkPythonRuntime',
+    'checkCertifi',
+    'checkPip',
+    'checkUv',
+    'checkPixi',
+    'checkRustlsWebpki',
+    'checkWebpkiRoots',
+    'checkWebpkiRootCerts',
+    'checkRustup',
+    'checkElectron',
+    'checkBun',
+    'checkClaude',
+    'checkArgocd',
+    'checkDockerDesktop',
+    'checkComposer',
+    'checkCastore',
+    'checkErlangCertifi',
+    'checkMise',
+    'checkPypiAction',
+    'checkPerlCa',
+    'checkDeno',
+    'checkConda'
 )) { invokeCheck $handler }
 Write-Host "Done: $script:updated upgraded; $script:pending pending; $script:skipped skipped; $script:errors errors/unverified."
 if ($script:errors -gt 0 -or $script:pending -gt 0) { exit 1 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# eMudhra fix tool; baseline source: table#patched at https://emudhra.we-have-a-problem.com/
+# eMudhra fix tool; baseline source: https://emudhra.we-have-a-problem.com/
 # Requires Bash 3.2+; do not run with sh. The finalized time is the baseline snapshot time, not the time of each run.
-SCRIPT_FINALIZED_AT='2026-10-22 18:37:12 Australia/Sydney (UTC+11:00)'
+SCRIPT_FINALIZED_AT='2026-10-23 15:22:30 Australia/Sydney (UTC+11:00)'
 # Checks only tools on PATH and the starting directory; project upgrades respect existing constraints and package sources.
 # --check shows skip reasons; in update mode items already compliant or not installed stay quiet.
 
@@ -26,12 +26,12 @@ fail() {
     [[ ${active_update:-0} = 1 ]] && indent='  '
     printf 'Error [%s]: %s\n' "$1" "$2" | displayIndented "$indent"
     if [[ ${active_update:-0} = 1 && -s ${update_log:-/nonexistent} ]]; then
-        printf '    Command log (stdout and stderr, not truncated):\n' >&2
+        printf '    Command log:\n' >&2
         displayIndented '      ' <"$update_log"
         saved_log=$(mktemp "${TMPDIR:-/tmp}/emudhra-error.XXXXXX")
         if [[ -n $saved_log ]] && cp "$update_log" "$saved_log"; then
             printf '    Full log: %s\n' "$saved_log" >&2
-        else printf '    Failed to save the log file; the full command log is shown above.\n' >&2; fi
+        else printf '    Failed to save the log file\n' >&2; fi
     fi
     active_update=0
     errors=$((${errors:-0} + 1)); reported=$((${reported:-0} + 1))
@@ -58,7 +58,8 @@ targetFor() {
 rootRun() {
     if [[ $(id -u) = 0 ]]; then "$@"
     elif has sudo; then sudo -- "$@"
-    else echo 'Root privileges are required and sudo was not found.' >&2; return 1; fi
+    elif [[ $(uname -s) = OpenBSD ]] && has doas; then doas "$@"
+    else echo 'Root privileges are required and sudo/doas was not found.' >&2; return 1; fi
 }
 runQuiet() {
     local rc
@@ -243,6 +244,62 @@ upgradeNode() {
 }
 checkNode() { has node && ensureVersion Node.js "$(targetFor node "$(getNode)")" getNode upgradeNode; }
 
+# Python runtimes are verified against upstream branch thresholds; the interpreter list comes from collectPython, with no separate scope.
+pythonTarget() {
+    case "$1" in
+        3.13) echo 3.13.17;;
+        3.14) echo 3.14.9;;
+        3.15) echo 3.15.1;;
+        *) return 1;;
+    esac
+}
+getPythonRuntime() {
+    "$1" -c 'import sys
+v = sys.version_info
+print("%d.%d.%d" % v[:3] if v.releaselevel == "final" else "%d.%d.%d%s%d" % (v.major, v.minor, v.micro, v.releaselevel, v.serial))' 2>/dev/null
+}
+upgradePythonRuntime() {
+    local py=$1 target=$2 prefix python_dir real=$1
+    prefix=$("$py" -c 'import sys; print(sys.prefix)' 2>/dev/null) || return 1
+    # A venv entry point is usually a symlink to the base interpreter; determine the install source by real path.
+    if has readlink; then real=$(readlink -f "$py" 2>/dev/null || printf '%s' "$py"); fi
+    # Conda environments are managed by conda; do not bypass it by switching interpreters with pip.
+    if [[ -d $prefix/conda-meta ]] && has conda; then
+        conda update --yes --prefix "$prefix" python; return
+    fi
+    # Standalone uv install: upgrade the patch release on the same branch; do not install a second copy.
+    if has uv; then
+        python_dir=$(uv python dir 2>/dev/null)
+        if [[ -n $python_dir && $real = "$python_dir/"* ]]; then
+            uv python upgrade "${target%.*}"; return
+        fi
+    fi
+    # pyenv only installs the matching patch and leaves the user's global/local setting alone; the verification result reports the active version.
+    if [[ -n ${PYENV_ROOT:-} && $real = "$PYENV_ROOT/"* ]] && has pyenv; then
+        pyenv install -s "$target"; return
+    fi
+    upgradeOwned "$py"
+}
+checkPythonRuntime() {
+    local py current branch minimum real seen='|'
+    for py in "${python_list[@]}"; do
+        # The same interpreter may have several entry points (PATH alias, venv, conda symlink); check it only once by real path.
+        real=$py
+        if has readlink; then real=$(readlink -f "$py" 2>/dev/null || printf '%s' "$py"); fi
+        if [[ $seen = *"|$real|"* ]]; then continue; fi
+        seen="$seen$real|"
+        current=$(getPythonRuntime "$py") || { fail "Python ($py)" 'Could not read the interpreter version.'; continue; }
+        if [[ ! $current =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            fail "Python ($py)" "Pre-release or abnormal version [$current] is not accepted as proof of a fix."; continue
+        fi
+        branch=${current%.*}
+        minimum=$(pythonTarget "$branch") || {
+            fail "Python ($py)" "No fixed version is listed for branch [$current]; use a supported branch or upgrade the original way."; continue
+        }
+        ensureVersion "Python ($py)" "$minimum" getPythonRuntime upgradePythonRuntime "$py" "$minimum"
+    done
+}
+
 # Enumerates only Python executables on PATH, the active venv, and the current project's .venv; user directories are not walked.
 collectPython() {
     local name path real seen='|' launcher
@@ -355,6 +412,48 @@ checkElectron() {
         fi
     fi
 }
+
+# Handles only this Action reference in the current project's workflows; floating branches and SHAs cannot be resolved offline.
+getPypiActionRefs() {
+    sed -nE 's/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*["'\'']?pypa\/gh-action-pypi-publish@([^ "'\''#]+).*/\2/p' "$1" | tr -d '\r'
+}
+getPypiActionVersion() {
+    getPypiActionRefs "$1" | head -n 1 | sed 's/^v//'
+}
+upgradePypiActionRef() {
+    local file=$1 ref=$2 escaped staged backup
+    escaped=${ref//./\\.}
+    staged=$(mktemp "${TMPDIR:-/tmp}/emudhra-workflow.XXXXXX") || return 1
+    if ! sed -E "s#(pypa/gh-action-pypi-publish@)${escaped}([^0-9.]|\$)#\1v1.14.3\2#" "$file" >"$staged"; then
+        rm -f "$staged"; return 1
+    fi
+    backup="$file.emudhra.$(date +%Y%m%d%H%M%S).bak"
+    if ! cp -p "$file" "$backup" || ! cat "$staged" >"$file"; then
+        rm -f "$staged"; return 1
+    fi
+    rm -f "$staged"
+}
+checkPypiAction() {
+    local dir="$project_dir/.github/workflows" file ref displayed
+    [[ -d $dir ]] || return
+    for file in "$dir"/*.yml "$dir"/*.yaml; do
+        [[ -f $file ]] || continue
+        displayed=${file#"$project_dir"/}
+        ref=$(getPypiActionRefs "$file")
+        [[ -n $ref ]] || continue
+        if [[ $(printf '%s\n' "$ref" | wc -l | tr -d ' ') -gt 1 ]]; then
+            fail 'pypi-publish GitHub Action' "Workflow [$displayed] contains multiple references; handle it manually."; continue
+        fi
+        if [[ $ref =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ensureVersion "pypi-publish GitHub Action ($displayed)" 1.14.3 getPypiActionVersion upgradePypiActionRef "$file" "$ref"
+        elif [[ $ref =~ ^[0-9a-f]{7,40}$ ]]; then
+            reportSkip 'pypi-publish GitHub Action' "Workflow [$displayed] uses a commit SHA reference; the version cannot be resolved, so handle it manually."
+        else
+            reportSkip 'pypi-publish GitHub Action' "Workflow [$displayed]: reference [$ref] cannot be verified offline; switch to a fixed tag or confirm manually."
+        fi
+    done
+}
+
 getComposer() {
     local prefix=()
     [[ ${1:-} = global ]] && prefix=(global)
@@ -480,7 +579,6 @@ getGuixCommit() {
 
 # Pending items keep their own entry points; once upstream publishes a fix, only the corresponding function and version need to be filled in.
 checkBottlerocket() { reportSkip Bottlerocket 'Still pending in the patch table; no fixed version is configured yet.'; }
-checkBun() { reportSkip Bun 'Still pending in the patch table; no fixed version is configured yet.'; }
 checkErlangCertifi() { reportSkip 'Erlang certifi' 'Still pending in the patch table; no fixed version is configured yet.'; }
 
 # Devuan 5/6 use the Debian 12/13 package versions respectively; do not concatenate the Devuan major version with a deb suffix.
@@ -587,6 +685,45 @@ checkOmnios() {
     ensureVersion 'OmniOS web/ca-bundle (r151054by/r151056ay/r151058y)' 3.131.1 getOmniosBundle upgradeOmnios
 }
 
+# OpenBSD's cert.pem belongs to base; releases are updated by syspatch errata, and -current has no patch to verify.
+openbsdErratum() {
+    case "$1" in
+        7.9) echo 040_dbupdate;;
+        8.0) echo 005_dbupdate;;
+        *) return 1;;
+    esac
+}
+checkOpenbsd() {
+    [[ $(uname -s) = OpenBSD ]] || return
+    local release erratum full kernel
+    release=$(uname -r 2>/dev/null)
+    full=$(uname -v 2>/dev/null)
+    kernel=$(sysctl -n kern.version 2>/dev/null)
+    if [[ $release = *-current || $full = *-current || $kernel = *-current ]]; then
+        fail OpenBSD 'This is -current, so there is no errata to verify; follow base updates and confirm cert.pem manually.'; return
+    fi
+    erratum=$(openbsdErratum "$release") || {
+        fail OpenBSD "No fix patch is listed for release [$release]; this version may be EOL."; return
+    }
+    has syspatch || { fail OpenBSD 'syspatch was not found; base patches cannot be verified.'; return; }
+    if syspatch -l 2>/dev/null | grep -Fxq "$erratum"; then
+        reportSkip OpenBSD "Base patch [$erratum] is already installed."; return
+    fi
+    reported=$((reported + 1))
+    if [[ $check_only = 1 ]]; then
+        printf 'Pending upgrade [OpenBSD %s]: missing base patch [%s]\n' "$release" "$erratum"
+        pending=$((pending + 1)); return
+    fi
+    active_update=1; update_log="$temp_dir/update.log"; : >"$update_log"
+    printf 'Found [OpenBSD %s], missing base patch [%s], running syspatch...\n' "$release" "$erratum"
+    # syspatch applies all pending base patches at once; it cannot install only this one.
+    if runQuiet rootRun syspatch && syspatch -l 2>/dev/null | grep -Fxq "$erratum"; then
+        finishUpdate "$erratum"
+    else
+        updateFailed OpenBSD 'syspatch did not install the specified patch; check errata and the privilege escalation method (sudo/doas).'
+    fi
+}
+
 normalizeJava() {
     local version=${1%%+*}
     if [[ $version =~ ^1\.8\.0_([0-9]+)(-b[0-9]+)?$ ]]; then echo "8.0.${BASH_REMATCH[1]}"
@@ -638,6 +775,89 @@ getDeno() { deno --version | versionOf; }
 upgradeDeno() { deno upgrade || upgradeOwned deno; }
 checkDeno() { has deno && ensureVersion Deno 2.9.8 getDeno upgradeDeno; }
 
+getBun() { bun --version 2>/dev/null | versionOf; }
+upgradeBun() {
+    local path cellar
+    path=$(command -v bun)
+    # Homebrew installations are left to the original manager so self-update does not overwrite the brew record.
+    if has brew; then
+        cellar=$(brew --cellar 2>/dev/null)
+        if [[ -n $cellar && $path = "$cellar/"* ]]; then brew update && brew upgrade bun; return; fi
+    fi
+    # canary versions are not accepted as proof of a fix; switch back to stable before verifying during self-update.
+    bun upgrade --stable && return 0
+    upgradeOwned bun
+}
+checkBun() { has bun && ensureVersion Bun 1.4.4 getBun upgradeBun; }
+
+getConda() { conda --version 2>/dev/null | versionOf; }
+upgradeConda() {
+    # Official update command; keep the user's existing channel configuration and do not add a default channel.
+    conda update --name base --yes conda
+}
+checkConda() { has conda && ensureVersion Conda 26.9.4 getConda upgradeConda; }
+
+# ArgoCD CLI and in-cluster server versions are handled separately: only the local CLI is changed safely; the server is only reported.
+getArgocd() { argocd version --client --short 2>/dev/null | versionOf; }
+upgradeArgocd() { upgradeOwned argocd; }
+checkArgocdServer() {
+    local image server
+    has kubectl || { reportSkip 'ArgoCD server' 'kubectl was not found; verify the server version on the cluster side according to the deployment method.'; return; }
+    image=$(kubectl -n argocd get deployment argocd-server -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
+    if [[ -z $image ]]; then
+        reportSkip 'ArgoCD server' 'Could not read the argocd-server deployment; the server version cannot be verified.'; return
+    fi
+    if [[ $image =~ :v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then server=${BASH_REMATCH[1]}
+    else reportSkip 'ArgoCD server' "Image [$image] does not use a comparable version tag; confirm manually."; return; fi
+    if versionGe "$server" 3.3.18; then reportSkip 'ArgoCD server' "Image [$image] already satisfies the requirement."
+    else fail 'ArgoCD server' "Image [$image] is below 3.3.18; upgrade it through Helm/deployment manifests, the script does not modify the cluster automatically."; fi
+}
+checkArgocd() {
+    has argocd && ensureVersion 'ArgoCD CLI' 3.3.18 getArgocd upgradeArgocd
+    has kubectl && checkArgocdServer
+}
+
+# Docker Desktop is a separate application; the docker Engine/CLI version cannot stand in for the Desktop version.
+getDockerDesktop() {
+    local version
+    case "$(uname -s)" in
+        Darwin)
+            [[ -r /Applications/Docker.app/Contents/Info.plist ]] || return 1
+            has defaults || return 1
+            version=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null) || return 1
+            ;;
+        Linux)
+            # Only Desktop provides the docker desktop subcommand; the regular Docker CLI does not.
+            has docker || return 1
+            version=$(docker desktop version 2>/dev/null | versionOf) || return 1
+            ;;
+        *) return 1;;
+    esac
+    [[ -n $version ]] || return 1
+    printf '%s\n' "$version"
+}
+upgradeDockerDesktop() {
+    case "$(uname -s)" in
+        Darwin)
+            if has brew; then brew update && brew upgrade --cask docker; return; fi;;
+        Linux)
+            if has apt-get; then rootRun apt-get install --only-upgrade -y docker-desktop; return
+            elif has dnf; then rootRun dnf upgrade -y docker-desktop; return
+            elif has pacman; then rootRun pacman -Syu --needed --noconfirm docker-desktop; return
+            fi;;
+    esac
+    # Do not restart the user's engine on our own; when auto-update is not possible, hand back to the in-app update.
+    echo 'Use the Docker Desktop in-app update or the original installer; Docker Desktop must be restarted after the upgrade for it to take effect.' >&2
+    return 1
+}
+checkDockerDesktop() {
+    [[ $(uname -s) = Darwin || $(uname -s) = Linux ]] || return
+    getDockerDesktop >/dev/null 2>&1 || return
+    local before=${updated:-0}
+    ensureVersion 'Docker Desktop' 4.96.2 getDockerDesktop upgradeDockerDesktop
+    [[ ${updated:-0} != "$before" ]] && printf 'Note: Docker Desktop must be restarted before the new version is used.\n'
+}
+
 # Handlers that produce no result explain the reason at the actual check entry point; not installed and not applicable are not conflated with fixed.
 invokeCheck() {
     local handler=$1 before=${reported:-0} label reason
@@ -667,11 +887,18 @@ invokeCheck() {
         checkFreebsdCaroot|checkFreebsd) label=${handler#check}; reason='This system is not FreeBSD, or the corresponding package manager was not found.';;
         checkFreedesktop) label='Freedesktop SDK'; reason='Flatpak was not found, or no Freedesktop SDK/Platform runtime is installed.';;
         checkOmnios) label='OmniOS web/ca-bundle'; reason='This system is not OmniOS.';;
+        checkOpenbsd) label='OpenBSD cert.pem'; reason='This system is not OpenBSD.';;
         checkJava) label=Java; reason='java was not found on PATH.';;
         checkPixi) label=pixi; reason='pixi was not found on PATH.';;
         checkClaude) label='Claude Code'; reason='claude was not found on PATH.';;
         checkMise) label=mise; reason='mise was not found on PATH.';;
         checkDeno) label=Deno; reason='deno was not found on PATH.';;
+        checkBun) label=Bun; reason='bun was not found on PATH.';;
+        checkConda) label=Conda; reason='conda was not found on PATH.';;
+        checkArgocd) label='ArgoCD CLI'; reason='argocd was not found on PATH.';;
+        checkDockerDesktop) label='Docker Desktop'; reason='No recognizable Docker Desktop installation was found on this system or install path.';;
+        checkPypiAction) label='pypi-publish GitHub Action'; reason='The workflows of the current project contain no reference to this Action.';;
+        checkPythonRuntime) label='Python runtime'; reason='No usable Python interpreter was found in the checked scope.';;
         *) label=$handler; reason='No applicable installation was found.';;
     esac
     reportSkip "$label" "$reason"
@@ -698,17 +925,50 @@ main() {
     [[ $check_only = 1 ]] && printf '[Check mode]\n'
     collectPython
     printf 'Environment detection complete; checking items in patch table order...\n'
-    invokeCheck checkUbuntu; invokeCheck checkDebian; invokeCheck checkDevuan
-    invokeCheck checkArch; invokeCheck checkGentoo; invokeCheck checkFedora
-    invokeCheck checkFreebsdCaroot; invokeCheck checkFreebsd; invokeCheck checkFreedesktop
-    invokeCheck checkChainguard; invokeCheck checkAlpine; invokeCheck checkGuix; invokeCheck checkOmnios
-    invokeCheck checkBottlerocket; invokeCheck checkNss; invokeCheck checkCurlBundle; invokeCheck checkCfssl
-    invokeCheck checkHomebrew; invokeCheck checkGo; invokeCheck checkJava; invokeCheck checkNode
-    invokeCheck checkCertifi; invokeCheck checkPip; invokeCheck checkUv; invokeCheck checkPixi
-    invokeCheck checkRustlsWebpki; invokeCheck checkWebpkiRoots; invokeCheck checkWebpkiRootCerts; invokeCheck checkRustup
-    invokeCheck checkElectron; invokeCheck checkBun; invokeCheck checkClaude
-    invokeCheck checkComposer; invokeCheck checkCastore; invokeCheck checkErlangCertifi
-    invokeCheck checkMise; invokeCheck checkPerlCa; invokeCheck checkDeno
+    invokeCheck checkUbuntu; 
+    invokeCheck checkDebian; 
+    invokeCheck checkDevuan;
+    invokeCheck checkArch; 
+    invokeCheck checkGentoo; 
+    invokeCheck checkFedora;
+    invokeCheck checkFreebsdCaroot; 
+    invokeCheck checkFreebsd; 
+    invokeCheck checkFreedesktop;
+    invokeCheck checkChainguard; 
+    invokeCheck checkAlpine; 
+    invokeCheck checkGuix; 
+    invokeCheck checkOmnios;
+    invokeCheck checkOpenbsd; 
+    invokeCheck checkBottlerocket;
+    invokeCheck checkNss; 
+    invokeCheck checkCurlBundle; 
+    invokeCheck checkCfssl;
+    invokeCheck checkHomebrew; 
+    invokeCheck checkGo; 
+    invokeCheck checkJava; 
+    invokeCheck checkNode;
+    invokeCheck checkPythonRuntime; 
+    invokeCheck checkCertifi; 
+    invokeCheck checkPip;
+    invokeCheck checkUv; 
+    invokeCheck checkPixi;
+    invokeCheck checkRustlsWebpki; 
+    invokeCheck checkWebpkiRoots; 
+    invokeCheck checkWebpkiRootCerts; 
+    invokeCheck checkRustup;
+    invokeCheck checkElectron; 
+    invokeCheck checkBun; 
+    invokeCheck checkClaude;
+    invokeCheck checkArgocd; 
+    invokeCheck checkDockerDesktop;
+    invokeCheck checkComposer; 
+    invokeCheck checkCastore; 
+    invokeCheck checkErlangCertifi;
+    invokeCheck checkMise; 
+    invokeCheck checkPypiAction; 
+    invokeCheck checkPerlCa;
+    invokeCheck checkDeno; 
+    invokeCheck checkConda;
     printf 'Done: %s upgraded; %s pending; %s skipped; %s errors/unverified.\n' "$updated" "$pending" "$skipped" "$errors"
     [[ $errors = 0 && $pending = 0 ]]
 }
